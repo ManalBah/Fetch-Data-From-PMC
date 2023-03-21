@@ -1,0 +1,36 @@
+---
+title: "analysePubData"
+author: "Manal Albahlal"
+date: "23/02/2021"
+output: pdf_document
+info: "This file retrived data and plot it based on year of publications (shown in analysePubData.pdf). "
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r requirments}
+library(ggplot2)
+
+```
+
+```{r load pub data}
+pubdata_Feb2021 <- read.csv("~/MyPhDWork/Chapter6/Survey/pubdata_Feb2021.csv", comment.char="#")
+
+```
+
+
+## Including Plots
+
+```{r plot year pub}
+#16605 has Met txt / 16624 has Met / 1294 published after April 2017
+
+ggplot(pubdata_Feb2021) +
+ aes(x = year) +
+ geom_histogram(bins = 82L, fill = "#0c4c8a") +
+ theme_minimal()
+
+```
+
+
