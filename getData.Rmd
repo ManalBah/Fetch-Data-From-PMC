@@ -1,0 +1,201 @@
+---
+title: "getPubmedArticles"
+author: "Manal Albahlal"
+date: "19/02/2021"
+output: pdf_document
+info: "This code will retrive the PMC articles and get the xml content  and bibligraphy informatoin. It will save the original xml files in PMCoriginal_Feb2021 folder (link). It will save the bibligraphy information (metadata) in pubdata.csv (link). It will annotate the xml files based on sections, figures and tables using SectionTagger_XML.pl (use the one in the directory because it was edited) and save them in PMCtagged_Feb2021 folder. The Methods section for each file is stored in text format in PMC_MethodsTxt_Feb2021 folder. The names of the files without method sections are stored in PMC_NoMetTxt_Feb2021 folder."
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r requirments}
+library(rentrez)
+library(R.utils)
+library(XML)
+library(xml2)
+```
+
+```{r retrive the PMC articles}
+# 1 get data
+# 1.1 serach pmc
+query_openacess = "microarray analysis[MeSH] AND (1990/01/01[PubDate] : 2021/03/31[PubDate]) AND open access[Filter]"
+pmc_search <- entrez_search(db="pmc", 
+                          term=query_openacess,
+                          retmax=20000
+                          )
+iterations = length(pmc_search$ids)
+
+variables = 10 # 
+output <- matrix(ncol=variables, nrow=iterations)
+```
+
+```{r fetch the PMC to get the articles IDs and save xml}
+for (i in 1:iterations) {
+  
+  #1.2 fetch files
+  pmcid = pmc_search$ids[[i]]
+  pmc_rec <- entrez_fetch(db="pmc", id=pmcid, rettype="xml", parsed=TRUE )
+  saveXML(pmc_rec,file=file.path("PMCoriginal_Feb2021", paste0(pmcid,".xml")))
+  
+}
+```
+
+```{r loop through PMC IDs and get the xml content and bibligraphy informatoin}
+arg1 <- "PMCoriginal_Feb2021"
+
+for (i in 1:iterations) {
+  # 
+  #1.3 get xml content/bibligraphy info
+  pmcid = pmc_search$ids[[i]]
+  pmc_rec = xmlParse( paste0(arg1 , "/", pmcid,".xml"), useInternal = TRUE)
+  pmc_list <- XML::xmlToList(pmc_rec)
+  article_type <- pmc_list$article$.attrs
+  subject <- pmc_list$article$front$`article-meta`$`article-categories`$`subj-group`$subject
+  pmid <- pmc_list$article$front$`article-meta`$`article-id`$text
+  title <-  pmc_list$article$front$`article-meta`$`title-group`$`article-title`
+  year <-pmc_list$article$front$`article-meta`$`pub-date`$year
+  journal <-pmc_list$article$front$`journal-meta`$`journal-title-group`$`journal-title`
+  if (is.null(journal)) 
+    journal <-pmc_list$article$front$`journal-meta`$`journal-title`
+  nodes = getNodeSet(pmc_rec, "//article/front/article-meta/pub-date[@pub-type='epub']") ##source 
+ pubDate<-lapply(nodes, function(x) xmlSApply(x, xmlValue))
+ hasMet <- if(length(pmc_list$article$body$sec) == 0) FALSE else TRUE 
+ #1.4 save bibligraphy info into data frame
+
+output[i,1] <- pmcid
+output[i,2] <- pmid
+output[i,3] <- toString(title)
+output[i,4] <- journal
+output[i,5] <- if(length(pubDate) == 0) 1 else pubDate[[1]][1]
+output[i,6] <- if(length(pubDate) == 0) 1 else pubDate[[1]][2]
+output[i,7] <- year
+output[i,8] <- toString(article_type)
+output[i,9] <- toString(subject)
+output[i,10] <-hasMet
+}
+ #1.4 save the data frame ito csv format
+ pub.data <- data.frame(output ) 
+write.csv(pub.data, "pubdata.csv")
+ids<- pmc_search$ids
+```
+
+```{r tag sections using SecTag}
+#create empty directories tmpPmcFolder, PMCtagged_Feb2021 and logDir
+  argTmp <- "tmpPmcFolder"
+  arg1 <- "PMCoriginal_Feb2021"
+  arg2 <- "PMCtagged_Feb2021"
+  arg3 <- "logDir"
+for (i in 1:iterations) {
+   #2.get method section
+   #2.1 tag document
+   #perl SectionTagger_XML.pl InputDirectory OutputDirectory LogFileDirectory
+  #pleas note the script has three issues
+  #I.1- pmcid is pmc in pmc lib but pmcid in epmc , #the perl script is edited, it is pmc not pmcid
+  #I.2- fn-grpup mismatch, I commented it since it is not importatnt to my expereiment
+  #I.3 there is a problem in form of </fig></p></fig></SecTag> , the script just close the SecTag after the first \fig, it did not care of nested figures , 17 documets are edidted manually
+   pmcid = pmc_search$ids[[i]]
+   file.copy(from = paste0( arg1 , "/",pmcid , ".xml"),
+          to   = paste0( argTmp , "/",pmcid , ".xml"))
+  gzip(paste0( argTmp , "/",pmcid , ".xml"))
+  cmd <- paste("perl", "SectionTagger_XML.pl", argTmp, arg2, arg3) 
+  system(cmd)
+  file.remove(paste0( argTmp , "/",pmcid , ".xml.gz"))
+  gunzip( paste0( arg2 , "/Out_",pmcid , ".txt.gz") )#, remove=FALSE
+  file.rename(paste0(arg2 , "/Out_",pmcid ,".txt"), paste0(arg2 , "/",pmcid ,".xml"))
+}
+ 
+```
+
+```{r extract method text that included in SecTag METHOD}
+for (i in 1:iterations) {
+
+  pmcid = pmc_search$ids[[i]]
+  print(pmcid)
+  doc = read_xml( paste0(arg2 , "/", pmcid,".xml"), useInternal = TRUE)
+  doc2 <- xml2::xml_new_root(doc)
+  doc2 <-xml2::xml_find_all(doc2, "//body/SecTag[@type='METHODS']")
+  
+  #source how to remove unwanted nodes: https://github.com/ropensci/tidypmc/blob/master/R/pmc_text.R
+                  ## check for tables, figures, formulas
+  n <- xml2::xml_find_all(doc2, ".//SecTag[@type='TABLE']")
+  if (length(n) > 0) {
+          message("Note: removing inline-formula nested in sec/p tag")
+          xml2::xml_remove(n)
+  }
+                   
+  n <- xml2::xml_find_all(doc2, ".//SecTag[@type='FIG']")
+  if (length(n) > 0) {
+            message("Note: removing inline-formula nested in sec/p tag")
+            xml2::xml_remove(n)
+  }                  
+                    
+  # formulas may include very long MathType encoding strings
+  n <- xml2::xml_find_all(doc2, ".//inline-formula")
+  if (length(n) > 0) {
+            message("Note: removing inline-formula nested in sec/p tag")
+            xml2::xml_remove(n)
+  }
+      
+  n <- xml2::xml_find_all(doc2, ".//disp-formula")
+  if (length(n) > 0) {
+          message("Note: removing disp-formula nested in sec/p tag")
+          xml2::xml_remove(n)
+  }
+                     
+   #just in case secTag failedto tag them
+  n <- xml2::xml_find_all(doc2, ".//table-wrap")
+  if (length(n) > 0) {
+         message("Note: removing table-wrap nested in sec/p tag")
+         xml2::xml_remove(n)
+  }
+                    
+  n <- xml2::xml_find_all(doc2, ".//fig")
+  if (length(n) > 0) {
+        message("Note: removing fig nested in sec/p tag")
+        xml2::xml_remove(n)
+  }
+                
+  methodSec<- xml2::xml_contents(doc2)
+  methodSecNodes <- xml2::xml_contents(methodSec)
+  methodSecNodesLen = length(methodSecNodes)
+  MethodString = ""
+  for (j in 1:methodSecNodesLen) {
+          nodes<-xml2::xml_contents(methodSecNodes[j])
+          nodesLen = length(nodes)
+          for (y in 1:nodesLen) {
+               MethodString <- paste0(MethodString, xml_text(nodes[y]),sep="\n")
+          }
+  }
+    
+  if(nchar(MethodString)<10){ write(MethodString,file=file.path("PMC_NoMetTxt_Feb2021/", paste0(pmcid,".txt")))
+    }else{   write(MethodString,file=file.path("PMC_MethodsTxt_Feb2021/", paste0(pmcid,".txt")))}
+} #for
+```
+  
+```{r list of which articles has/hasnot a method setion in SecTag}
+hasMetSecTag <- vector("list", iterations)
+for (i in 1:iterations) {
+
+  pmcid = pmc_search$ids[[i]]
+  doc = read_xml( paste0(arg2 , "/", pmcid,".xml"), useInternal = TRUE)
+  doc2 <- xml2::xml_new_root(doc)
+  doc2 <-xml2::xml_find_all(doc2, "//body/SecTag[@type='METHODS']")
+  if (length(doc2) == 0)
+    hasMetSecTag[[i]] = FALSE
+  else
+     hasMetSecTag[[i]] = TRUE
+ 
+}
+
+#edit pubdata
+pubdata$hasMetSecTag<-unlist(hasMetSecTag)
+write.csv(pubdata, "pubdata_Feb2021.csv")
+
+```
+
+```{r change the coloumn name for meta data (pubData.csv)}
+
+```
+
