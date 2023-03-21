@@ -6,5 +6,5 @@ It will save the original xml files in PMCoriginal_Feb2021 folder (link). It wil
 
 
 ## Analyse the PMC articles 
-[`analysePubData.rmd`](analysePubData.rmd)  plot the articles  based on year of publications. This is represented in 
+[`analysePubData.rmd`]([analysePubData.rmd](https://github.com/ManalBah/Fetch-Data-From-PMC/blob/main/analysePubData.Rmd))  plot the articles  based on year of publications. This is represented in 
 [`analysePubData.pdf`](analysePubData.pdf)
