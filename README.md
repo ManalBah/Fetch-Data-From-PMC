@@ -7,4 +7,4 @@ It will save the original xml files in PMCoriginal_Feb2021 folder (link). It wil
 
 ## Analyse the PMC articles 
 `analysePubData.rmd`  plot the articles  based on year of publications. This is represented in 
-[embed][`analysePubData.pdf`](analysePubData.pdf)[\embed]
+[`analysePubData.pdf`](analysePubData.pdf)
